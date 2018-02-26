@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Document</title>
+    <script src="https://cdn.bootcss.com/jquery/1.12.4/jquery.min.js"></script>
+    <script src="https://cdn.bootcss.com/spark-md5/3.0.0/spark-md5.min.js"></script>
+    <script src="https://cdn.bootcss.com/vue/2.2.0/vue.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+        }
+
+        ul {
+            list-style: none;
+        }
+
+        .drag-area {
+            width: 1000px;
+            height: 300px;
+            border: 1px solid #000;
+            margin: 250px auto;
+            text-align: center;
+            line-height: 300px;
+            user-select: none;
+        }
+
+        .item {
+            height: 30px;
+            line-height: 30px;
+            display: flex;
+            font-size: 12px;
+            justify-content: space-around;
+        }
+
+        .item span {
+            flex: 1;
+            text-align: center;
+        }
+
+        .item span:last-child {
+            color: #386cca;
+            cursor: pointer;
+        }
+    </style>
+    <script>
+        $(function () {
+            $('input').on('change', function (e) {
+                var index = $(this).index('ul input');
+                var md5 = calculate(e.target.files[0], (md5) => {
+                    $('span').eq(index).text(`md5:${md5}`);
+                    return md5;
+                });
+            })
+        })
+    </script>
+</head>
+
+<body>
+    <div id="root">
+        <input type="button" @click="uploadAll" value="全部上传">
+        <div class="drag-area" @drop="dropHandler($event)" @dragleave="dragleaveHandler" @dragenter="dragenterHandler">
+            <p v-if="!isDragIn">请将文件拖拽到此区域</p>
+            <p v-if="!itemList.length && isDragIn">松手上传</p>
+            <ul v-if="itemList.length">
+                <li v-for="(item,index) in itemList" :key="index">
+                    <p v-if="!item.md5">loading</p>
+                    <upload ref="uploadTask" v-if="item.md5 && item.chunks &&  item.file" :chunks="item.chunks" :load="item.loaded" :item="item.file"
+                        :time="item.times" :md5="item.md5"></upload>
+                </li>
+            </ul>
+
+        </div>
+    </div>
+</body>
+<script>
+    new Vue({
+        // itemlist[{md5:{file,times,chunks,loaded}}]
+        data: {
+            itemList: [],
+            isDragIn: false,
+            standChunk: 1024 * 1024 * 10,
+        },
+        mounted() {
+            document.addEventListener('dragover', (ev) => {
+                ev.preventDefault();
+            }, false)
+        },
+        methods: {
+            dropHandler(ev) {
+                Array.from(ev.dataTransfer.files).forEach((val, index) => {
+                    let obj = {};
+                    console.log(obj)
+                    this.md5(val, (md5, file) => {
+                        obj.file = file;
+                        obj.md5 = md5;
+                        // 初始化localstorage
+                        let chunkCount = Math.ceil(file.size / this.standChunk);
+                        let chunksArr = [];
+                        for (let j = 0; j < chunkCount; j++) {
+                            chunksArr.push((file.slice(j * this.standChunk, (j + 1) * this.standChunk)));
+                        }
+                        obj.chunks = chunksArr;
+                        // 默认按md5存分片
+                        let res = JSON.parse(localStorage.getItem(md5));
+                        if (JSON.stringify(res) === '{}' || !res) {
+                            let localObj = {
+                                nextTimes: 2,
+                                uploadedChunks: [],
+                                totalTimes: chunkCount,
+                                loaded: 0,
+                                times: 0
+                            };
+                            obj.times = 0;
+                            obj.loaded = 0;
+                            localStorage.setItem(md5, JSON.stringify(localObj));
+                        } else {
+                            obj.loaded = res.loaded;
+                            obj.times = res.times;
+                        }
+
+                        this.itemList.push(obj);
+                    })
+                });
+                console.log(this);
+                ev.preventDefault();
+            },
+            dragleaveHandler() {
+                this.isDragIn = false;
+            },
+            dragenterHandler() {
+                this.isDragIn = true;
+            },
+            uploadAll() {
+                $('.upload').click();
+            },
+            md5(file, callBack) {
+                var fileReader = new FileReader(),
+                    blobSlice = File.prototype.mozSlice || File.prototype.webkitSlice || File.prototype.slice,
+                    chunkSize = 2097152,
+                    // read in chunks of 2MB    
+                    chunks = Math.ceil(file.size / chunkSize),
+                    currentChunk = 0,
+                    spark = new SparkMD5();
+
+                fileReader.onload = function (e) {
+                    spark.appendBinary(e.target.result); // append binary string    
+                    currentChunk++;
+
+                    if (currentChunk < chunks) {
+                        loadNext();
+                    } else {
+                        callBack(spark.end(), file);
+                    }
+                };
+
+                function loadNext() {
+                    var start = currentChunk * chunkSize,
+                        end = start + chunkSize >= file.size ? file.size : start + chunkSize;
+
+                    fileReader.readAsBinaryString(blobSlice.call(file, start, end));
+                };
+
+                loadNext();
+            }
+        },
+        components: {
+            'upload': {
+                props: ['item', 'md5', 'time', 'chunks', 'load'],
+                data() {
+                    return {
+                        isUploading: false,
+                        isPause: false,
+                        isOver: false,
+                        xhr: null,
+                        standChunk: 1024 * 1024 * 10,  // 10M
+                        chunkCount: 0,
+                        nextTimes: 2,
+                        uploadedChunks: [],
+                        loaded: 0,
+                        times: 0
+                    }
+                },
+                computed: {
+                    percent() {
+                        return (this.loaded / this.item.size) > 1 ? '100%' : Math.round((this.loaded / this.item.size) * 100 * 100) / 100 + '%';
+                    }
+                },
+                methods: {
+                    upload() {
+                        let total = this.item.size;
+                        let _this = this;
+                        
+                        // 创建xhr对象 分片文件
+                        this.xhr = new XMLHttpRequest();
+
+                        // 添加xhr事件监听
+                        this.xhr.onreadystatechange = function () {
+                            if (_this.xhr.readyState === 4) {
+                                if (_this.xhr.status >= 200 && _this.xhr.status < 300 || _this.xhr.status == 304) {
+                                    console.log('chunk uploaded..next');
+                                    console.log(_this.xhr.responseText)
+                                    _this.pushChunks(_this.xhr.responseText);
+                                    _this.times++;
+
+                                    console.log(`上传完${_this.times}次`);
+                                    console.log(`共需上传${_this.chunkCount}次`);
+
+                                    if (_this.times >= _this.chunks.length) {
+                                        console.log('上传完毕');
+                                        _this.isOver = true;
+                                        // 发起合并请求
+                                        _this.merge();
+                                        return;
+                                    }
+                                    _this.upload();
+                                } else {
+                                    console.log(_this.times);
+                                    console.log('err')
+                                }
+                            }
+                        }
+                        // 分片上传
+                        this.xhr.open('POST', 'http://localhost:8086/upload', true);
+                        let data = new FormData();
+                        data.set('file', this.chunks[this.times]);
+                        data.set('md5', this.md5);
+                        data.set('times', this.times + 1);
+                        data.set('totalTimes', this.chunkCount);
+
+                        // 上传监听
+                        this.xhr.upload.onprogress = function (ev) {
+                            let loaded = 0;
+                            // if (_this.chunks.length === 1) {
+                            //     loaded = _this.chunks[0].size;
+                            // } else {
+                            for (let k = 0; k < _this.uploadedChunks.length; k++) {
+                                loaded += _this.chunks[k].size;
+                            }
+                            loaded += ev.loaded;
+                            // }
+                            _this.loaded > loaded ? _this.loaded = _this.loaded : _this.loaded = loaded;
+                            _this.updateLoaded();
+                            console.log(ev)
+                            console.log('chunk-size----' + ev.loaded)
+                        };
+
+                        this.xhr.send(data);
+                        this.isUploading = true;
+                    },
+                    pause() {
+                        this.xhr.abort();
+                        this.nextTimes = this.times + 1;
+                        this.isPause = true;
+                        this.isUploading = false;
+
+                        let obj = {
+                            nextTimes: this.times + 1,
+                            totalTimes: this.chunkCount,
+                            uploadedChunks: this.getStorage().uploadedChunks,
+                            loaded: this.loaded,
+                            times: this.times
+                        }
+                        this.setStorage(obj);
+                    },
+                    resume() {
+                        this.isPause = false;
+                        this.isUploading = true;
+
+                        let res = JSON.parse(localStorage.getItem(this.md5));
+
+                        // 续传
+                        this.uploadedChunks = res.uploadedChunks;
+                        this.chunkCount = res.totalTimes;
+                        this.nextTimes = res.uploadedChunks.length;
+                        this.loaded = res.loaded;
+
+                        this.upload();
+                    },
+                    merge() {
+                        let xhr = new XMLHttpRequest();
+                        xhr.open('POST', 'http://localhost:8086/merge', true);
+                        let data = new FormData();
+                        data.append('chunks', this.uploadedChunks);
+                        data.append('md5', this.md5);
+                        xhr.send(data);
+                    },
+                    setStorage(obj) {
+                        localStorage.setItem(this.md5, JSON.stringify(obj));
+                    },
+                    pushChunks(chunksId) {
+                        let res = JSON.parse(localStorage.getItem(this.md5));
+                        console.log(res);
+                        res.nextTimes = this.times + 1;
+                        res.uploadedChunks.push(chunksId);
+                        this.uploadedChunks = res.uploadedChunks;
+                        localStorage.setItem(this.md5, JSON.stringify(res));
+                    },
+                    updateLoaded() {
+                        let res = JSON.parse(localStorage.getItem(this.md5));
+                        res.loaded = this.loaded;
+                        localStorage.setItem(this.md5, JSON.stringify(res));
+                    },
+                    getStorage() {
+                        return JSON.parse(localStorage.getItem(this.md5));
+                    }
+                },
+                mounted() {
+                    let _this = this;
+                    //'item', 'md5', 'times', 'chunks', 'loaded'
+                    // 获取初始化信息
+                    let res = JSON.parse(localStorage.getItem(this.md5));
+                    this.uploadedChunks = res.uploadedChunks;
+                    this.chunkCount = this.chunks.length;
+                    this.nextTimes = res.uploadedChunks.length + 1;
+                    this.loaded = this.load;
+                    this.times = this.time;
+                    console.log(this.times);
+
+                    if (res.uploadedChunks.length != res.totalTimes && res.uploadedChunks.length) {
+                        // 续传
+                        this.isPause = true;
+                        this.isOver = false;
+                    } else if (res.uploadedChunks.length === res.totalTimes) {
+                        this.isOver = true;
+                    } else {
+                        this.isOver = false;
+                    }
+                    console.log(res);
+                    console.log(this)
+
+
+                },
+                template: `<div class="item">
+                            <span>{{item.name}}</span>
+                            <span>{{item.size+'b'}}</span>
+                            <span>{{md5}}</span>
+                            <span v-if="isOver">已上传完毕</span>  
+                            <span>loaded{{loaded}}</span>
+                            <span>上传进度{{percent}}</span>
+                            <span v-if="!isOver">
+                                <b class="upload" v-if="!isUploading && !isPause" @click="upload">上传</b>
+                                <b v-if="isPause" @click="resume">继续上传</b>
+                                <b v-if="isUploading" @click="pause">暂停</b>
+                            </span>
+                        </div>`,
+
+            }
+        }
+    }).$mount('#root');    
+</script>
+
+</html>
