@@ -22,23 +22,62 @@
         .drag-area {
             width: 1000px;
             height: 300px;
-            border: 1px solid #000;
-            margin: 250px auto;
+            border: 1px solid #ccc;
+            margin: 16px auto;
             text-align: center;
-            line-height: 300px;
             user-select: none;
         }
 
+        .drag-area.active {
+            box-shadow: 0 0 10px 2px #ccc;
+        }
+
+        .drag-area .drapupload {
+            line-height: 300px;
+        }
+
+        .drag-area p {
+            line-height: 80px;
+        }
+
+        .drag-area .computed {
+            line-height: 40px;
+            color: #386cca;
+        }
+
+        .upload-item-wrap {
+            position: relative;
+            width: 100%;
+            height: 30px;
+        }
+
+        .upload-item-wrap>div {
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+        }
+
+        .upload-item-wrap .bar {
+            z-index: 1;
+            background-color: #6d9ff8;
+        }
+
         .item {
+            z-index: 2;
             height: 30px;
             line-height: 30px;
             display: flex;
             font-size: 12px;
+            width: 100%;
             justify-content: space-around;
         }
 
         .item span {
             flex: 1;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            overflow: hidden;
             text-align: center;
         }
 
@@ -46,34 +85,50 @@
             color: #386cca;
             cursor: pointer;
         }
+
+        .tools {
+            width: 1000px;
+            margin: 250px auto;
+            margin-bottom: 0;
+            overflow: hidden;
+        }
+
+        .tools a {
+            float: right;
+            color: #6d9ff8;
+            background-color: #fff;
+            padding: 2px 6px;
+            font-size: 14px;
+            text-decoration: none;
+        }
+
+        .tools a:hover {
+            background-color: #6d9ff8;
+            color: #fff;
+        }
+
+        .tools span {
+            float: left;
+            font-size: 14px;
+        }
     </style>
-    <script>
-        $(function () {
-            $('input').on('change', function (e) {
-                var index = $(this).index('ul input');
-                var md5 = calculate(e.target.files[0], (md5) => {
-                    $('span').eq(index).text(`md5:${md5}`);
-                    return md5;
-                });
-            })
-        })
-    </script>
 </head>
 
 <body>
     <div id="root">
-        <input type="button" @click="uploadAll" value="全部上传">
-        <div class="drag-area" @drop="dropHandler($event)" @dragleave="dragleaveHandler" @dragenter="dragenterHandler">
-            <p v-if="!isDragIn">请将文件拖拽到此区域</p>
-            <p v-if="!itemList.length && isDragIn">松手上传</p>
+        <div class="tools">
+            <a href="javascript:;" @click="uploadAll">全部上传</a>
+            <span>文件个数：{{fileLength|| 0}}</span>
+        </div>
+        <div class="drag-area" :class="{'active':isDragIn && !droped}" @drop="dropHandler($event)" @dragleave="dragleaveHandler"
+            @dragenter="dragenterHandler">
+            <p class="drapupload" v-show="!itemList.length && !droped">拖拽上传</p>
             <ul v-if="itemList.length">
-                <li v-for="(item,index) in itemList" :key="index">
-                    <p v-if="!item.md5">loading</p>
-                    <upload ref="uploadTask" v-if="item.md5 && item.chunks &&  item.file" :chunks="item.chunks" :load="item.loaded" :item="item.file"
-                        :time="item.times" :md5="item.md5"></upload>
+                <li v-for="(item,index) in itemList" v-if="item.md5 && item.chunks && item.file" :key="index">
+                    <upload ref="uploadTask" :chunks="item.chunks" :load="item.loaded" :item="item.file" :time="item.times" :md5="item.md5"></upload>
                 </li>
             </ul>
-
+            <p class="computed" v-if="droped && itemList.length != fileLength">正在计算文件的md5，请稍后...</p>
         </div>
     </div>
 </body>
@@ -82,16 +137,22 @@
         // itemlist[{md5:{file,times,chunks,loaded}}]
         data: {
             itemList: [],
+            fileLength: 0,
             isDragIn: false,
+            droped: false,
             standChunk: 1024 * 1024 * 10,
         },
         mounted() {
+            let _this = this;
             document.addEventListener('dragover', (ev) => {
+                _this.droped = false;
                 ev.preventDefault();
             }, false)
         },
         methods: {
             dropHandler(ev) {
+                this.droped = true;
+                this.fileLength += ev.dataTransfer.files.length;
                 Array.from(ev.dataTransfer.files).forEach((val, index) => {
                     let obj = {};
                     console.log(obj)
@@ -131,9 +192,11 @@
             },
             dragleaveHandler() {
                 this.isDragIn = false;
+                this.droped = false;
             },
             dragenterHandler() {
                 this.isDragIn = true;
+                this.droped = false;
             },
             uploadAll() {
                 $('.upload').click();
@@ -194,7 +257,7 @@
                     upload() {
                         let total = this.item.size;
                         let _this = this;
-                        
+
                         // 创建xhr对象 分片文件
                         this.xhr = new XMLHttpRequest();
 
@@ -335,19 +398,24 @@
 
 
                 },
-                template: `<div class="item">
-                            <span>{{item.name}}</span>
-                            <span>{{item.size+'b'}}</span>
-                            <span>{{md5}}</span>
-                            <span v-if="isOver">已上传完毕</span>  
-                            <span>loaded{{loaded}}</span>
-                            <span>上传进度{{percent}}</span>
-                            <span v-if="!isOver">
-                                <b class="upload" v-if="!isUploading && !isPause" @click="upload">上传</b>
-                                <b v-if="isPause" @click="resume">继续上传</b>
-                                <b v-if="isUploading" @click="pause">暂停</b>
-                            </span>
-                        </div>`,
+                template: `
+                        <div class="upload-item-wrap">
+                            <div v-if="!percent || percent!='100%'" class="bar" :style="{width:percent}"></div>
+                            <div class="item">
+                                <span>{{item.name}}</span>
+                                <span>{{item.size+'b'}}</span>
+                                <span>{{md5}}</span>
+                                <span v-if="isOver">已上传完毕</span>  
+                                <span>loaded{{loaded}}</span>
+                                <span>上传进度{{percent}}</span>
+                                <span v-if="!isOver">
+                                    <b class="upload" v-if="!isUploading && !isPause" @click="upload">上传</b>
+                                    <b v-if="isPause" @click="resume">继续上传</b>
+                                    <b v-if="isUploading" @click="pause">暂停</b>
+                                </span>
+                            </div>
+                        </div>
+                        `,
 
             }
         }
