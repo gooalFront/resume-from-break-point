@@ -200,6 +200,7 @@
             },
             uploadAll() {
                 $('.upload').click();
+                $('.resume').click();
             },
             md5(file, callBack) {
                 var fileReader = new FileReader(),
@@ -245,12 +246,21 @@
                         nextTimes: 2,
                         uploadedChunks: [],
                         loaded: 0,
-                        times: 0
+                        times: 0,
                     }
                 },
                 computed: {
+                    isEmpty() {
+                        return this.item.size === 0 ? true : false;
+                    },
                     percent() {
-                        return (this.loaded / this.item.size) > 1 ? '100%' : Math.round((this.loaded / this.item.size) * 100 * 100) / 100 + '%';
+                        if (this.item.size === 0) {
+                            return '空文件无法上传，请重新选择'
+                        } else if ((this.loaded / this.item.size) > 1) {
+                            return '100%'
+                        } else {
+                            return Math.round((this.loaded / this.item.size) * 100 * 100) / 100 + '%';
+                        }
                     }
                 },
                 methods: {
@@ -388,7 +398,7 @@
                         // 续传
                         this.isPause = true;
                         this.isOver = false;
-                    } else if (res.uploadedChunks.length === res.totalTimes) {
+                    } else if (res.uploadedChunks.length === res.totalTimes && res.totalTimes != 0) {
                         this.isOver = true;
                     } else {
                         this.isOver = false;
@@ -405,12 +415,12 @@
                                 <span>{{item.name}}</span>
                                 <span>{{item.size+'b'}}</span>
                                 <span>{{md5}}</span>
-                                <span v-if="isOver">已上传完毕</span>  
+                                <span v-if="isOver && !isEmpty">已上传完毕</span>  
                                 <span>loaded{{loaded}}</span>
-                                <span>上传进度{{percent}}</span>
-                                <span v-if="!isOver">
+                                <span>{{percent}}</span>
+                                <span v-if="!isOver && !isEmpty">
                                     <b class="upload" v-if="!isUploading && !isPause" @click="upload">上传</b>
-                                    <b v-if="isPause" @click="resume">继续上传</b>
+                                    <b class="resume" v-if="isPause" @click="resume">继续上传</b>
                                     <b v-if="isUploading" @click="pause">暂停</b>
                                 </span>
                             </div>
