@@ -308,14 +308,10 @@
                         // 上传监听
                         this.xhr.upload.onprogress = function (ev) {
                             let loaded = 0;
-                            // if (_this.chunks.length === 1) {
-                            //     loaded = _this.chunks[0].size;
-                            // } else {
                             for (let k = 0; k < _this.uploadedChunks.length; k++) {
                                 loaded += _this.chunks[k].size;
                             }
                             loaded += ev.loaded;
-                            // }
                             _this.loaded > loaded ? _this.loaded = _this.loaded : _this.loaded = loaded;
                             _this.updateLoaded();
                             console.log(ev)
